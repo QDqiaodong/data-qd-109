@@ -82,15 +82,22 @@ def _apply_limits(db,work_memory_mb):
     db.execute('PRAGMA mmap_size=0')
     db.execute('PRAGMA cache_size=%d'%-budget_kib)
 
-def _stage_events(db,source):
-    """One sequential JSONL pass -> on-disk unique-event staging table."""
+def _stage_events(db,events):
+    """Write one normalized-event iterable into the on-disk staging table.
+
+    A single pass over the iterable: duplicate event_ids with identical canonical
+    payloads are counted, conflicting payloads fail the whole run, and an empty
+    stream is rejected. The JSONL path feeds ``iter_events(source)`` here; the
+    vendor package intake feeds the events mapped from its CSV parts, so the
+    dedup/conflict/empty-stream contract is enforced by the same code.
+    """
     db.execute('CREATE TABLE stage_events('
                'event_id TEXT PRIMARY KEY,'
                'event_at TEXT NOT NULL,'
                'payload TEXT NOT NULL)')
     source_rows=0;duplicate_rows=0;saw_any=False
     insert=db.execute
-    for event in iter_events(source):
+    for event in events:
         saw_any=True;source_rows+=1
         event_id=event['event_id'];event_at=event['at']
         payload=json.dumps(event,sort_keys=True)
@@ -212,15 +219,20 @@ def _materialize_outputs(db,as_of,source_rows,duplicate_rows,unique_events,futur
         'summary':summary,
     }
 
-def run(source,as_of,target,work_memory_mb=WORK_MEMORY_MB_DEFAULT,temp_dir=None):
-    """Rebuild the SQLite snapshot with bounded process memory.
+def _build_database(target,as_of,events,*,work_memory_mb=WORK_MEMORY_MB_DEFAULT,
+                    temp_dir=None,before_publish=None,enable_foreign_keys=False):
+    """Shared staging/rebuild/materialize/publish core.
 
-    Public positional call and the returned result are identical to the original
-    implementation; work_memory_mb and temp_dir are optional controls for the
-    large-input staging path.
+    ``events`` is any iterable of normalized event dictionaries (the JSONL path
+    passes ``iter_events(source)``; the vendor package intake passes the events
+    mapped from its CSV parts). All validation and writing happens inside one
+    private staging database; the target is replaced by a same-volume atomic
+    rename only after the database has been fully written and closed.
+
+    ``before_publish(db)``, when given, runs inside the same open transaction
+    after the business tables are materialized and before the staging tables are
+    dropped; the intake uses it to append the provenance tables.
     """
-    as_of=instant(as_of)
-    work_memory_mb=_check_work_memory_mb(work_memory_mb)
     target=Path(target);target.parent.mkdir(parents=True,exist_ok=True)
     work_dir=_resolve_temp_dir(temp_dir,target.parent)
 
@@ -234,12 +246,16 @@ def run(source,as_of,target,work_memory_mb=WORK_MEMORY_MB_DEFAULT,temp_dir=None)
         # avoided entirely because it force-commits any open transaction.
         with closing(sqlite3.connect(temp,isolation_level=None)) as db:
             _apply_limits(db,work_memory_mb)
+            if enable_foreign_keys:
+                db.execute('PRAGMA foreign_keys=ON')
             try:
                 db.execute('BEGIN')
-                source_rows,duplicate_rows,unique_events=_stage_events(db,source)
+                source_rows,duplicate_rows,unique_events=_stage_events(db,events)
                 future_events=_streaming_rebuild(db,as_of)
                 result=_materialize_outputs(db,as_of,source_rows,duplicate_rows,
                                             unique_events,future_events)
+                if before_publish is not None:
+                    before_publish(db)
                 db.execute('COMMIT')
                 # Shrink to the published schema; VACUUM must run outside a
                 # transaction and spills via the same bounded temp store.
@@ -258,3 +274,15 @@ def run(source,as_of,target,work_memory_mb=WORK_MEMORY_MB_DEFAULT,temp_dir=None)
             os.environ.pop('SQLITE_TMPDIR',None)
         else:
             os.environ['SQLITE_TMPDIR']=old_tmpdir
+
+def run(source,as_of,target,work_memory_mb=WORK_MEMORY_MB_DEFAULT,temp_dir=None):
+    """Rebuild the SQLite snapshot with bounded process memory.
+
+    Public positional call and the returned result are identical to the original
+    implementation; work_memory_mb and temp_dir are optional controls for the
+    large-input staging path.
+    """
+    as_of=instant(as_of)
+    work_memory_mb=_check_work_memory_mb(work_memory_mb)
+    return _build_database(target,as_of,iter_events(source),
+                           work_memory_mb=work_memory_mb,temp_dir=temp_dir)

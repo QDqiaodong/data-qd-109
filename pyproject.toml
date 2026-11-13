@@ -9,5 +9,6 @@ requires-python = ">=3.11"
 dependencies = []
 [project.scripts]
 circulation-flow = "circulation_flow.cli:main"
+circulation-intake = "circulation_flow.intake:main"
 [tool.setuptools.packages.find]
 where = ["src"]
