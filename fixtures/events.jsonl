@@ -1,0 +1,6 @@
+{"event_id": "E3", "at": "2026-01-12T00:00:00Z", "kind": "return", "copy_id": "B1", "loan_id": "L1", "due": null}
+{"event_id": "E2", "at": "2026-01-03T00:00:00Z", "kind": "renew", "copy_id": "B1", "loan_id": "L1", "due": "2026-01-10"}
+{"event_id": "E4", "at": "2026-01-02T00:00:00Z", "kind": "borrow", "copy_id": "B2", "loan_id": "L2", "due": "2026-01-08"}
+{"event_id": "E1", "at": "2026-01-01T00:00:00Z", "kind": "borrow", "copy_id": "B1", "loan_id": "L1", "due": "2026-01-05"}
+{"event_id": "E1", "at": "2026-01-01T01:00:00+01:00", "kind": "borrow", "copy_id": "B1", "loan_id": "L1", "due": "2026-01-05"}
+{"event_id": "E5", "at": "2026-01-13T00:00:00Z", "kind": "borrow", "copy_id": "B3", "loan_id": "L3", "due": "2026-01-20"}
