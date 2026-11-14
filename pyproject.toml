@@ -7,8 +7,16 @@ version = "0.1.0"
 description = "Library circulation event reconstruction and overdue analytics"
 requires-python = ">=3.11"
 dependencies = []
+
+[project.optional-dependencies]
+# The offline SQLite->DuckDB migration is the only feature needing a third-party
+# runtime package. The production JSONL/intake entry points stay standard-library
+# only. Install the exact pinned wheel from requirements-duckdb.lock.
+duckdb = ["duckdb==1.5.3"]
+
 [project.scripts]
 circulation-flow = "circulation_flow.cli:main"
 circulation-intake = "circulation_flow.intake:main"
+circulation-migrate-duckdb = "circulation_flow.migrate_duckdb:main"
 [tool.setuptools.packages.find]
 where = ["src"]

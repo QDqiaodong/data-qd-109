@@ -1,0 +1,20 @@
+# Pinned runtime dependency for the OFFLINE SQLite -> DuckDB migration only.
+#
+# The two production entry points (circulation_flow.cli / circulation_flow.intake)
+# and their tests stay standard-library only and never import duckdb.
+# circulation_flow.migrate_duckdb imports duckdb lazily; no DuckDB extension is
+# installed or loaded and no network/service is contacted at run time.
+#
+# Install into the project virtualenv (a wheel already cached locally needs no
+# network; point --find-links at a wheelhouse for a fully air-gapped install):
+#   .venv/bin/python -m pip install -r requirements-duckdb.lock
+#
+# Exact version pin; duckdb follows calendar-style releases and its on-disk
+# format/optimizer can change between minor versions, so the pin is the lock.
+duckdb==1.5.3
+#
+# Verified distribution hash for the wheel used in this environment
+# (cp311 / manylinux aarch64). Other Python/platform wheels of 1.5.3 carry
+# different hashes; regenerate with `python -m pip hash <wheel>` when caching
+# another platform into an air-gapped wheelhouse:
+#   sha256:e80eb4d0fb59869cb2c7d7ef494c07fb92014fe8e77d96c170cd1ebc1488a708

@@ -1,1 +1,7 @@
 # Runtime and tests use Python 3.11+ standard library only.
+#
+# The two production entry points (circulation_flow.cli / circulation_flow.intake)
+# need no third-party package. The optional offline SQLite -> DuckDB migration
+# (circulation_flow.migrate_duckdb) is the only feature with a third-party
+# dependency; its exact pin lives in requirements-duckdb.lock and is imported
+# lazily so the production path remains standard-library only.

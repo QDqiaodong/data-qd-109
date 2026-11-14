@@ -76,6 +76,31 @@ ORDER BY o.occurrence_id;
 `intake_runs.manifest_bytes` 为各成员原文；按成员名写回即可重建原始 ZIP 并
 独立复算摘要。JSONL 入口不创建 intake_* 表，也不伪造任何 ZIP/CSV 来源。
 
+## 离线迁移到 DuckDB 分析库
+
+两个生产入口保持只产出 SQLite。另提供**只读、离线、一次性**的迁移入口，把
+已交付快照复制为自包含 DuckDB 分析库，不重新解释事件、不重算借阅：普通模式
+复制 `events`/`loans`/`run_metadata` 与 `status_summary` 视图；整包模式额外
+复制三张 `intake_*` 来源表，NULL、64 位整数、身份原文、JSON 文本与 BLOB
+字节全部原样保留。
+
+```sh
+# duckdb 是迁移专用的唯一第三方依赖，按 lock 钉版安装（生产入口仍仅用标准库）
+.venv/bin/python -m pip install -r requirements-duckdb.lock
+.venv/bin/python -m pip install --no-build-isolation --no-deps .
+.venv/bin/python -m circulation_flow.migrate_duckdb \
+    --source run/plain.sqlite --database run/plain.duckdb --batch-size 1000
+```
+
+`migrate(source, target, batch_size=1000, temp_dir=None)` 是对应 Python 入口。
+源以只读 URI 打开并持有一个读事务，读开始后的提交或源路径替换都不会混入；
+逐批流式复制（Python 缓冲不随总行数增长，单个最大 BLOB 占一个行槽），按稳定
+键和带类型无歧义编码生成逐表 SHA-256 摘要，关闭暂存库后重开只读连接逐项回读
+核验，再同卷原子发布。坏动态类型、缺表/多表/结构变化、孤儿来源、计数矛盾以及
+源目标别名一律拒绝；失败保留旧目标并清理暂存。目标库的主键、唯一、外键与业务
+CHECK 均显式生效并经违约探针验证；不安装或加载任何 DuckDB 扩展、不联网。
+完整口径见 docs/migration-duckdb.md。
+
 ## 整包校验口径（摘要）
 
 - ZIP 恰好包含根 `manifest.json` 与其声明的 CSV 成员：无多余、缺失、重名或
@@ -133,12 +158,14 @@ python3 tools/memory_benchmark.py reference run/big.jsonl 2027-01-01T00:00:00Z r
 ## 目录
 
 - `src/circulation_flow/`：解析、业务转换及命令行入口（`cli` 为 JSONL，
-  `intake` 为供应商 ZIP 整包）。
+  `intake` 为供应商 ZIP 整包，`migrate_duckdb` 为离线 SQLite→DuckDB 迁移）。
 - `fixtures/`：MIT 许可的合成输入；来源声明见 DATA-SOURCES.md。
 - `tools/generate_events.py`：合成 JSONL；`tools/generate_package.py`：
   合成供应商导出 ZIP（含清单与乱序分片）。
-- `docs/contract.md`：字段和口径、边界及失败约定。
-- `tests/`：业务结果、边界与失败测试（`test_intake.py` 覆盖整包采集）。
+- `docs/contract.md`：字段和口径、边界及失败约定；
+  `docs/migration-duckdb.md`：迁移的类型/约束映射、快照、批处理与发布口径。
+- `tests/`：业务结果、边界与失败测试（`test_intake.py` 覆盖整包采集，
+  `test_migrate_duckdb.py` 覆盖两种源库的离线迁移）。
 - `requirements*.lock`、`pyproject.toml`：环境和构建声明。
 
 本基线不承诺实时同步或生产调度。仅验证本机环境的事实见交付记录；本仓库不
