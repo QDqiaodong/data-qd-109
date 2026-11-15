@@ -101,6 +101,27 @@ ORDER BY o.occurrence_id;
 CHECK 均显式生效并经违约探针验证；不安装或加载任何 DuckDB 扩展、不联网。
 完整口径见 docs/migration-duckdb.md。
 
+## 本地多代备份运维
+
+`circulation_flow.backup`（仅标准库）为上述两种 SQLite 交付物提供本机多代备份：
+持久 catalog + 不可变对象，按请求 ID 幂等备份，经 SQLite 备份机制获取含 WAL
+已提交事务的一致快照，恢复为纯字节复制（表、视图、BLOB 原样保留，不重算业务）。
+
+```sh
+python3 -m circulation_flow.backup backup  --store run/bkstore --source run/circulation.sqlite --request-id rel-2026-11-14
+python3 -m circulation_flow.backup list    --store run/bkstore
+python3 -m circulation_flow.backup restore --store run/bkstore --generation 1 --target run/restored.sqlite
+python3 -m circulation_flow.backup prune   --store run/bkstore --keep 3
+python3 -m circulation_flow.backup check   --store run/bkstore
+```
+
+已提交请求重试返回原代且不重读已变化的源；对象先持久、catalog 行单事务提交
+为提交点，SIGKILL 后重启可辨认已提交代与孤儿，恢复看不到半代；prune 保留最近
+N 代但跳过正在恢复的代（flock 持有，持代进程死亡即自动释放，不靠超时）；恢复
+先核摘要与完整性再原子替换离线目标，目标不得在备份库内，失败保留旧目标。
+`backup()`/`restore()`/`prune()` 是对应 Python 入口。提交顺序、崩溃语义、并发
+协议与运维处置见 docs/backup.md；双进程崩溃/并发测试见 tests/test_backup.py。
+
 ## 整包校验口径（摘要）
 
 - ZIP 恰好包含根 `manifest.json` 与其声明的 CSV 成员：无多余、缺失、重名或
@@ -158,14 +179,17 @@ python3 tools/memory_benchmark.py reference run/big.jsonl 2027-01-01T00:00:00Z r
 ## 目录
 
 - `src/circulation_flow/`：解析、业务转换及命令行入口（`cli` 为 JSONL，
-  `intake` 为供应商 ZIP 整包，`migrate_duckdb` 为离线 SQLite→DuckDB 迁移）。
+  `intake` 为供应商 ZIP 整包，`migrate_duckdb` 为离线 SQLite→DuckDB 迁移，
+  `backup` 为本地多代备份运维）。
 - `fixtures/`：MIT 许可的合成输入；来源声明见 DATA-SOURCES.md。
 - `tools/generate_events.py`：合成 JSONL；`tools/generate_package.py`：
   合成供应商导出 ZIP（含清单与乱序分片）。
 - `docs/contract.md`：字段和口径、边界及失败约定；
-  `docs/migration-duckdb.md`：迁移的类型/约束映射、快照、批处理与发布口径。
+  `docs/migration-duckdb.md`：迁移的类型/约束映射、快照、批处理与发布口径；
+  `docs/backup.md`：备份库的提交顺序、崩溃语义、并发协议与运维说明。
 - `tests/`：业务结果、边界与失败测试（`test_intake.py` 覆盖整包采集，
-  `test_migrate_duckdb.py` 覆盖两种源库的离线迁移）。
+  `test_migrate_duckdb.py` 覆盖两种源库的离线迁移，`test_backup.py` 覆盖
+  备份库的双进程崩溃/并发/篡改场景）。
 - `requirements*.lock`、`pyproject.toml`：环境和构建声明。
 
 本基线不承诺实时同步或生产调度。仅验证本机环境的事实见交付记录；本仓库不

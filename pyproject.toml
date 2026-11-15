@@ -18,5 +18,6 @@ duckdb = ["duckdb==1.5.3"]
 circulation-flow = "circulation_flow.cli:main"
 circulation-intake = "circulation_flow.intake:main"
 circulation-migrate-duckdb = "circulation_flow.migrate_duckdb:main"
+circulation-backup = "circulation_flow.backup:main"
 [tool.setuptools.packages.find]
 where = ["src"]
